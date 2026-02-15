@@ -126,7 +126,6 @@ export const CloudEventBase = z
             'cdc.write',
             'schema.change',
             'schema.snapshot',
-            'snapshot.request',
             'media.manifest',
             'media.meta',
             'media.delete',
@@ -182,21 +181,6 @@ export const SchemaSnapshotData = z
     });
 
 export type SchemaSnapshotData = z.infer<typeof SchemaSnapshotData>;
-
-export const SnapshotRequestData = z
-    .object({
-        hwm_ts: isoDateTime,
-        reason: z.string().min(1).optional(),
-        requested_by: z.email({ message: 'must be a valid email' }).optional(),
-        scope: z
-            .object({
-                tables: z.array(z.string()).min(1).optional(),
-            })
-            .optional(),
-    })
-    .strict();
-
-export type SnapshotRequestData = z.infer<typeof SnapshotRequestData>;
 
 export const MediaBlobChunking = z
     .object({
@@ -317,10 +301,6 @@ export const CloudEventSchema = z.discriminatedUnion('type', [
     CloudEventBase.extend({
         data: SchemaSnapshotData,
         type: z.literal('schema.snapshot'),
-    }),
-    CloudEventBase.extend({
-        data: SnapshotRequestData,
-        type: z.literal('snapshot.request'),
     }),
     CloudEventBase.extend({
         data: MediaManifestData,

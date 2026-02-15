@@ -38,8 +38,6 @@ export function derivePartitionKey(event: any): string {
                 return `${data.table}/${data.record_sys_id}`;
             }
             return event?.subject || event?.source || 'unknown';
-        case 'snapshot.request':
-            return `${event.source}`;
         default:
             return event?.subject || 'unknown';
     }
@@ -67,7 +65,7 @@ function normalizeErrorSeverity(
 
 function mapErrorTopic(severity: unknown, useTestTopics: boolean): string {
     const normalized = normalizeErrorSeverity(severity);
-    const prefix = useTestTopics ? 'rez.test.' : 'rez.';
+    const prefix = useTestTopics ? 'rez.test.log.' : 'rez.log.';
 
     if (normalized === 'error') {
         return `${prefix}error`;
@@ -94,9 +92,6 @@ export function mapTopic(type: string, useTestTopics = false, data?: any): strin
         if (type === 'repair.report') {
             return 'rez.test.repair';
         }
-        if (type === 'snapshot.request') {
-            return 'rez.test.control';
-        }
 
         return 'rez.test.cdc';
     }
@@ -112,9 +107,6 @@ export function mapTopic(type: string, useTestTopics = false, data?: any): strin
     }
     if (type === 'repair.report') {
         return 'rez.repair';
-    }
-    if (type === 'snapshot.request') {
-        return 'rez.control';
     }
 
     return 'rez.cdc';

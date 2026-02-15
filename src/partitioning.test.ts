@@ -28,12 +28,11 @@ test('derivePartitionKey for CDC uses data.table/data.record_sys_id only', () =>
 });
 
 test('mapTopic routes error.report critical severity to error topic', () => {
-    assert.equal(mapTopic('error.report', false, { severity: 'critical' }), 'rez.error');
-    assert.equal(mapTopic('error.report', true, { severity: 'critical' }), 'rez.test.error');
+    assert.equal(mapTopic('error.report', false, { severity: 'critical' }), 'rez.log.error');
+    assert.equal(mapTopic('error.report', true, { severity: 'critical' }), 'rez.test.log.error');
 });
 
-test('mapTopic routes control/schema/media/repair topics correctly', () => {
-    assert.equal(mapTopic('snapshot.request', false), 'rez.control');
+test('mapTopic routes schema/media/repair topics correctly', () => {
     assert.equal(mapTopic('schema.change', true), 'rez.test.schema');
     assert.equal(mapTopic('media.delete', false), 'rez.media');
     assert.equal(mapTopic('repair.report', true), 'rez.test.repair');
