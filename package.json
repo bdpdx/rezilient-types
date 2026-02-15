@@ -1,0 +1,26 @@
+{
+    "name": "@rezilient/types",
+    "version": "1.0.0",
+    "description": "Shared CloudEvent schemas, types, and routing helpers for Rezilient services",
+    "type": "commonjs",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "exports": {
+        ".": "./dist/index.js"
+    },
+    "files": [
+        "dist"
+    ],
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "test": "npm run build && node --test dist/schemas.test.js dist/partitioning.test.js",
+        "prepare": "npm run build"
+    },
+    "dependencies": {
+        "zod": "^4.3.6"
+    },
+    "devDependencies": {
+        "@types/node": "^24.7.2",
+        "typescript": "^5.9.3"
+    }
+}
