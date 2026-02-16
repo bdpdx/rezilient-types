@@ -2,6 +2,9 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { CloudEventSchema } from './schemas';
 import {
+    comparePitRowTuple,
+    computeRestorePlanHash,
+    selectLatestPitRowTuple,
     PIT_ALGORITHM_VERSION,
     RESTORE_CONTRACT_VERSION,
     RESTORE_METADATA_ALLOWLIST_VERSION,
@@ -123,6 +126,20 @@ function hashRowInput() {
         values: {
             diff_enc: encryptedPayload('row-diff'),
         },
+    };
+}
+
+function basePlanHashInput() {
+    return {
+        contract_version: RESTORE_CONTRACT_VERSION,
+        plan_hash_input_version: PLAN_HASH_INPUT_VERSION,
+        plan_hash_algorithm: PLAN_HASH_ALGORITHM,
+        pit: pitContract(),
+        scope: scopeContract(),
+        execution_options: executionOptions(),
+        action_counts: actionCounts(),
+        rows: [hashRowInput()],
+        metadata_allowlist_version: RESTORE_METADATA_ALLOWLIST_VERSION,
     };
 }
 
@@ -296,20 +313,91 @@ test('RestorePitContract enforces milliseconds and PIT algorithm version', () =>
     assert.equal(invalid.success, false);
 });
 
+test('comparePitRowTuple uses sys_mod_count when available', () => {
+    const older = {
+        sys_updated_on: '2026-02-16 12:00:00',
+        sys_mod_count: 7,
+        __time: '2026-02-16T12:00:00.100Z',
+        event_id: 'evt-a',
+    };
+    const newer = {
+        ...older,
+        sys_mod_count: 8,
+        __time: '2026-02-16T12:00:00.050Z',
+        event_id: 'evt-b',
+    };
+
+    assert.equal(comparePitRowTuple(older, newer), -1);
+    assert.equal(comparePitRowTuple(newer, older), 1);
+});
+
+test('comparePitRowTuple falls back when sys_mod_count is unavailable', () => {
+    const first = {
+        sys_updated_on: '2026-02-16 12:00:00',
+        __time: '2026-02-16T12:00:00.100Z',
+        event_id: 'evt-a',
+    };
+    const second = {
+        sys_updated_on: '2026-02-16 12:00:00',
+        __time: '2026-02-16T12:00:00.200Z',
+        event_id: 'evt-b',
+    };
+
+    assert.equal(comparePitRowTuple(first, second), -1);
+    assert.equal(comparePitRowTuple(second, first), 1);
+});
+
+test('comparePitRowTuple falls back when one side lacks sys_mod_count', () => {
+    const first = {
+        sys_updated_on: '2026-02-16 12:00:00',
+        sys_mod_count: 3,
+        __time: '2026-02-16T12:00:00.100Z',
+        event_id: 'evt-a',
+    };
+    const second = {
+        sys_updated_on: '2026-02-16 12:00:00',
+        __time: '2026-02-16T12:00:00.200Z',
+        event_id: 'evt-b',
+    };
+
+    assert.equal(comparePitRowTuple(first, second), -1);
+    assert.equal(comparePitRowTuple(second, first), 1);
+});
+
+test('selectLatestPitRowTuple chooses deterministic winner', () => {
+    const winner = selectLatestPitRowTuple([
+        {
+            sys_updated_on: '2026-02-16 12:00:00',
+            sys_mod_count: 3,
+            __time: '2026-02-16T12:00:00.100Z',
+            event_id: 'evt-a',
+        },
+        {
+            sys_updated_on: '2026-02-16 12:00:00',
+            sys_mod_count: 3,
+            __time: '2026-02-16T12:00:00.100Z',
+            event_id: 'evt-z',
+        },
+    ]);
+
+    assert.equal(winner.event_id, 'evt-z');
+});
+
 test('RestorePlanHashInput validates plan-hash contract payload', () => {
-    const parsed = RestorePlanHashInput.safeParse({
-        contract_version: RESTORE_CONTRACT_VERSION,
-        plan_hash_input_version: PLAN_HASH_INPUT_VERSION,
-        plan_hash_algorithm: PLAN_HASH_ALGORITHM,
-        pit: pitContract(),
-        scope: scopeContract(),
-        execution_options: executionOptions(),
-        action_counts: actionCounts(),
-        rows: [hashRowInput()],
-        metadata_allowlist_version: RESTORE_METADATA_ALLOWLIST_VERSION,
-    });
+    const parsed = RestorePlanHashInput.safeParse(basePlanHashInput());
 
     assert.equal(parsed.success, true);
+});
+
+test('computeRestorePlanHash is deterministic for identical input', () => {
+    const parsed = RestorePlanHashInput.parse(basePlanHashInput());
+    const firstHash = computeRestorePlanHash(parsed);
+    const secondHash = computeRestorePlanHash(
+        RestorePlanHashInput.parse(basePlanHashInput()),
+    );
+
+    assert.equal(firstHash.plan_hash, secondHash.plan_hash);
+    assert.equal(firstHash.canonical_json, secondHash.canonical_json);
 });
 
 test('RestorePlanHashInput rejects plaintext value material', () => {

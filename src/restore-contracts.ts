@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import {
     EncryptedPayload,
@@ -227,6 +228,106 @@ export const RestorePitContract = z
 
 export type RestorePitContract = z.infer<typeof RestorePitContract>;
 
+export const RestorePitRowTuple = z
+    .object({
+        sys_updated_on: serviceNowDateTime,
+        sys_mod_count: z.number().int().nonnegative().optional(),
+        __time: isoDateTimeWithMillis,
+        event_id: z.string().min(1),
+    })
+    .strict();
+
+export type RestorePitRowTuple = z.infer<typeof RestorePitRowTuple>;
+
+function compareNumbers(left: number, right: number): number {
+    if (left < right) {
+        return -1;
+    }
+
+    if (left > right) {
+        return 1;
+    }
+
+    return 0;
+}
+
+function asServiceNowUtcMillis(value: string): number {
+    const parsed = Date.parse(value.replace(' ', 'T') + '.000Z');
+
+    if (!Number.isFinite(parsed)) {
+        throw new Error('invalid ServiceNow datetime value');
+    }
+
+    return parsed;
+}
+
+function asIsoUtcMillis(value: string): number {
+    const parsed = Date.parse(value);
+
+    if (!Number.isFinite(parsed)) {
+        throw new Error('invalid ISO datetime value');
+    }
+
+    return parsed;
+}
+
+export function comparePitRowTuple(
+    left: RestorePitRowTuple,
+    right: RestorePitRowTuple,
+): number {
+    const bySysUpdatedOn = compareNumbers(
+        asServiceNowUtcMillis(left.sys_updated_on),
+        asServiceNowUtcMillis(right.sys_updated_on),
+    );
+
+    if (bySysUpdatedOn !== 0) {
+        return bySysUpdatedOn;
+    }
+
+    if (
+        left.sys_mod_count !== undefined &&
+        right.sys_mod_count !== undefined
+    ) {
+        const bySysModCount = compareNumbers(
+            left.sys_mod_count,
+            right.sys_mod_count,
+        );
+
+        if (bySysModCount !== 0) {
+            return bySysModCount;
+        }
+    }
+
+    const byEventTime = compareNumbers(
+        asIsoUtcMillis(left.__time),
+        asIsoUtcMillis(right.__time),
+    );
+
+    if (byEventTime !== 0) {
+        return byEventTime;
+    }
+
+    return left.event_id.localeCompare(right.event_id);
+}
+
+export function selectLatestPitRowTuple<T extends RestorePitRowTuple>(
+    rows: readonly T[],
+): T {
+    if (rows.length === 0) {
+        throw new Error('rows must include at least one PIT tuple');
+    }
+
+    let winner = rows[0];
+
+    for (let index = 1; index < rows.length; index += 1) {
+        if (comparePitRowTuple(rows[index], winner) > 0) {
+            winner = rows[index];
+        }
+    }
+
+    return winner;
+}
+
 export const RestorePlanAction = z.enum([
     'update',
     'insert',
@@ -428,6 +529,68 @@ export const RestorePlanHashInput = z
     });
 
 export type RestorePlanHashInput = z.infer<typeof RestorePlanHashInput>;
+
+type CanonicalJson =
+    | null
+    | boolean
+    | number
+    | string
+    | CanonicalJson[]
+    | {
+        [key: string]: CanonicalJson;
+    };
+
+function toCanonicalJson(value: unknown): CanonicalJson {
+    if (
+        value === null ||
+        typeof value === 'boolean' ||
+        typeof value === 'number' ||
+        typeof value === 'string'
+    ) {
+        return value;
+    }
+
+    if (Array.isArray(value)) {
+        return value.map((entry) => toCanonicalJson(entry));
+    }
+
+    if (typeof value === 'object') {
+        const entries = Object.entries(value as Record<string, unknown>)
+            .sort((left, right) => left[0].localeCompare(right[0]));
+        const out: {
+            [key: string]: CanonicalJson;
+        } = {};
+
+        for (const [key, entryValue] of entries) {
+            out[key] = toCanonicalJson(entryValue);
+        }
+
+        return out;
+    }
+
+    throw new Error('unsupported value in canonical JSON serialization');
+}
+
+export function canonicalJsonStringify(value: unknown): string {
+    return JSON.stringify(toCanonicalJson(value));
+}
+
+export function computeRestorePlanHash(
+    input: RestorePlanHashInput,
+): {
+    canonical_json: string;
+    plan_hash: string;
+} {
+    const canonicalJson = canonicalJsonStringify(input);
+    const planHash = createHash('sha256')
+        .update(canonicalJson, 'utf8')
+        .digest('hex');
+
+    return {
+        canonical_json: canonicalJson,
+        plan_hash: planHash,
+    };
+}
 
 export const RestoreConflict = z
     .object({

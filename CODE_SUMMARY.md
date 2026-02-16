@@ -7,7 +7,8 @@ Primary entrypoints:
 - `src/schemas.ts`: CloudEvent envelope and event payload schemas.
 - `src/partitioning.ts`: Topic routing and partition-key helpers.
 - `src/restore-contracts.ts`: Restore/auth-adjacent shared contracts for
-  plan/job/conflict/evidence/journal/watermark metadata.
+  plan/job/conflict/evidence/journal/watermark metadata, PIT tuple utilities,
+  and deterministic plan-hash canonicalization helpers.
 - `src/index.ts`: Public export surface.
 
 Testing:
