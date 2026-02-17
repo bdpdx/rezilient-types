@@ -129,6 +129,28 @@ function hashRowInput() {
     };
 }
 
+function mediaCandidate(id: string, decision?: 'include' | 'exclude') {
+    return {
+        candidate_id: id,
+        table: 'x_app.ticket',
+        record_sys_id: `rec-${id}`,
+        attachment_sys_id: `att-${id}`,
+        size_bytes: 128,
+        sha256_plain: HASH_B,
+        decision,
+        metadata: {
+            allowlist_version: RESTORE_METADATA_ALLOWLIST_VERSION,
+            metadata: {
+                table: 'x_app.ticket',
+                record_sys_id: `rec-${id}`,
+                attachment_sys_id: `att-${id}`,
+                size_bytes: 128,
+                sha256_plain: HASH_B,
+            },
+        },
+    };
+}
+
 function basePlanHashInput() {
     return {
         contract_version: RESTORE_CONTRACT_VERSION,
@@ -475,6 +497,41 @@ test('RestorePlanHashInput enforces sorted unique row_id values', () => {
     });
 
     assert.equal(unsorted.success, false);
+});
+
+test('RestorePlanHashInput validates RS-11 media candidate contract', () => {
+    const valid = RestorePlanHashInput.safeParse({
+        ...basePlanHashInput(),
+        media_candidates: [
+            mediaCandidate('candidate-01', 'include'),
+            mediaCandidate('candidate-02', 'exclude'),
+        ],
+    });
+
+    assert.equal(valid.success, true);
+
+    const unsorted = RestorePlanHashInput.safeParse({
+        ...basePlanHashInput(),
+        media_candidates: [
+            mediaCandidate('candidate-02', 'include'),
+            mediaCandidate('candidate-01', 'exclude'),
+        ],
+    });
+
+    assert.equal(unsorted.success, false);
+
+    const missingIdentity = RestorePlanHashInput.safeParse({
+        ...basePlanHashInput(),
+        media_candidates: [
+            {
+                ...mediaCandidate('candidate-01', 'include'),
+                attachment_sys_id: undefined,
+                media_id: undefined,
+            },
+        ],
+    });
+
+    assert.equal(missingIdentity.success, false);
 });
 
 test('RestoreConflict blocks skip resolution for reference_conflict', () => {

@@ -48,7 +48,9 @@ export const RestoreReasonCode = z.enum([
     'blocked_unknown_source_mapping',
     'blocked_missing_capability',
     'blocked_unresolved_delete_candidates',
+    'blocked_unresolved_media_candidates',
     'blocked_reference_conflict',
+    'blocked_media_parent_missing',
     'blocked_freshness_stale',
     'blocked_freshness_unknown',
     'blocked_auth_control_plane_outage',
@@ -56,6 +58,9 @@ export const RestoreReasonCode = z.enum([
     'paused_token_refresh_grace_exhausted',
     'paused_entitlement_disabled',
     'paused_instance_disabled',
+    'failed_media_parent_missing',
+    'failed_media_hash_mismatch',
+    'failed_media_retry_exhausted',
     'failed_schema_conflict',
     'failed_permission_conflict',
     'failed_internal_error',
@@ -365,6 +370,68 @@ export const RestoreDeleteDecision = z.enum([
 
 export type RestoreDeleteDecision = z.infer<typeof RestoreDeleteDecision>;
 
+export const RestoreMediaDecision = z.enum([
+    'include',
+    'exclude',
+]);
+
+export type RestoreMediaDecision = z.infer<typeof RestoreMediaDecision>;
+
+export const RestoreMediaCandidate = z
+    .object({
+        candidate_id: z.string().min(1),
+        table: z.string().min(1),
+        record_sys_id: z.string().min(1),
+        attachment_sys_id: z.string().min(1).optional(),
+        media_id: z.string().min(1).optional(),
+        content_type: z.string().min(1).optional(),
+        size_bytes: z.number().int().nonnegative(),
+        sha256_plain: Sha256Hex,
+        decision: RestoreMediaDecision.optional(),
+        parent_record_exists: z.boolean().optional(),
+        observed_sha256_plain: Sha256Hex.optional(),
+        retryable_failures: z.number().int().nonnegative().optional(),
+        max_retry_attempts: z.number().int().positive().optional(),
+        metadata: RrsMetadataEnvelope.optional(),
+    })
+    .strict()
+    .superRefine((candidate, ctx) => {
+        if (!candidate.attachment_sys_id && !candidate.media_id) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message:
+                    'media candidate requires attachment_sys_id or media_id',
+                path: ['attachment_sys_id'],
+            });
+        }
+
+        if (
+            candidate.metadata?.metadata.table &&
+            candidate.metadata.metadata.table !== candidate.table
+        ) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'metadata.table must match table',
+                path: ['metadata', 'metadata', 'table'],
+            });
+        }
+
+        if (
+            candidate.metadata?.metadata.record_sys_id &&
+            candidate.metadata.metadata.record_sys_id !==
+                candidate.record_sys_id
+        ) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message:
+                    'metadata.record_sys_id must match record_sys_id',
+                path: ['metadata', 'metadata', 'record_sys_id'],
+            });
+        }
+    });
+
+export type RestoreMediaCandidate = z.infer<typeof RestoreMediaCandidate>;
+
 export const RestoreEncryptedValueEnvelope = z
     .object({
         diff_enc: EncryptedPayload.optional(),
@@ -494,6 +561,7 @@ export const RestorePlanHashInput = z
         execution_options: RestoreExecutionOptions,
         action_counts: RestoreActionCounts,
         rows: z.array(RestorePlanHashRowInput).min(1),
+        media_candidates: z.array(RestoreMediaCandidate).default([]),
         metadata_allowlist_version: z.literal(
             RESTORE_METADATA_ALLOWLIST_VERSION,
         ),
@@ -524,6 +592,37 @@ export const RestorePlanHashInput = z
                 code: z.ZodIssueCode.custom,
                 message: 'rows must be sorted by row_id for deterministic hash',
                 path: ['rows'],
+            });
+        }
+
+        const candidateIds = input.media_candidates.map((candidate) =>
+            candidate.candidate_id
+        );
+        const uniqueCandidateIds = new Set(candidateIds);
+
+        if (uniqueCandidateIds.size !== candidateIds.length) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message:
+                    'media_candidates must have unique candidate_id values',
+                path: ['media_candidates'],
+            });
+        }
+
+        const sortedCandidateIds = [...candidateIds].sort((left, right) =>
+            left.localeCompare(right),
+        );
+        const candidatesAreSorted = candidateIds.every((candidateId, index) => {
+            return candidateId === sortedCandidateIds[index];
+        });
+
+        if (!candidatesAreSorted) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message:
+                    'media_candidates must be sorted by candidate_id ' +
+                    'for deterministic hash',
+                path: ['media_candidates'],
             });
         }
     });
