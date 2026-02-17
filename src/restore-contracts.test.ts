@@ -274,6 +274,15 @@ function baseEvidence() {
             attachments_skipped: 0,
             attachments_failed: 0,
         },
+        resume_metadata: {
+            resume_attempt_count: 0,
+            checkpoint_id: 'chk_abcdef',
+            next_chunk_index: 1,
+            total_chunks: 1,
+            last_chunk_id: 'chunk_0001',
+            plan_checksum: HASH_A,
+            precondition_checksum: HASH_B,
+        },
         artifact_hashes: [
             {
                 artifact_id: 'plan.json',
@@ -601,6 +610,15 @@ test('RestoreEvidence requires PIT version, hashes, and signed manifest', () => 
     const parsed = RestoreEvidence.safeParse(baseEvidence());
 
     assert.equal(parsed.success, true);
+});
+
+test('RestoreEvidence requires resume metadata fields', () => {
+    const invalid = RestoreEvidence.safeParse({
+        ...baseEvidence(),
+        resume_metadata: undefined,
+    });
+
+    assert.equal(invalid.success, false);
 });
 
 test('CloudEvent envelope remains compatible with restore metadata mapping', () => {
