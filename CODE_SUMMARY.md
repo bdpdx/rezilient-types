@@ -10,9 +10,12 @@ Primary entrypoints:
   plan/job/conflict/evidence/journal/watermark metadata (including RS-12
   evidence resume metadata and verification reason codes), PIT tuple utilities,
   and deterministic plan-hash canonicalization helpers.
+- `src/audit-contracts.ts`: Cross-service audit event contract profile, replay
+  ordering schema, and legacy ACP/RRS audit adapter helpers.
 - `src/index.ts`: Public export surface.
 
 Testing:
 - `src/schemas.test.ts`
 - `src/partitioning.test.ts`
 - `src/restore-contracts.test.ts`
+- `src/audit-contracts.test.ts`

@@ -13,7 +13,7 @@
     ],
     "scripts": {
         "build": "tsc -p tsconfig.json",
-        "test": "npm run build && node --test dist/schemas.test.js dist/partitioning.test.js dist/restore-contracts.test.js",
+        "test": "npm run build && node --test dist/schemas.test.js dist/partitioning.test.js dist/restore-contracts.test.js dist/audit-contracts.test.js",
         "prepare": "npm run build"
     },
     "dependencies": {
