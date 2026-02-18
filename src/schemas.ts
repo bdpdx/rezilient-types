@@ -1,11 +1,66 @@
 import { z } from 'zod';
 
+const ISO_UTC_SECOND_REGEX =
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+const ISO_UTC_MILLIS_REGEX =
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+function normalizeIsoUtcInput(value: string): string | null {
+    if (ISO_UTC_SECOND_REGEX.test(value)) {
+        return `${value.slice(0, -1)}.000Z`;
+    }
+
+    if (ISO_UTC_MILLIS_REGEX.test(value)) {
+        return value;
+    }
+
+    return null;
+}
+
+function parseIsoUtcCanonical(value: string): string | null {
+    const normalized = normalizeIsoUtcInput(value);
+
+    if (!normalized) {
+        return null;
+    }
+
+    const parsed = Date.parse(normalized);
+
+    if (!Number.isFinite(parsed)) {
+        return null;
+    }
+
+    const canonical = new Date(parsed).toISOString();
+
+    if (canonical !== normalized) {
+        return null;
+    }
+
+    return canonical;
+}
+
+export function isIsoDateTimeUtc(value: string): boolean {
+    return parseIsoUtcCanonical(value) !== null;
+}
+
+export function canonicalizeIsoDateTimeUtc(value: string): string {
+    const canonical = parseIsoUtcCanonical(value);
+
+    if (!canonical) {
+        throw new Error(
+            'must be ISO datetime (UTC Z) with second or millisecond precision',
+        );
+    }
+
+    return canonical;
+}
+
 export const isoDateTime = z
     .string()
-    .regex(
-        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/,
-        'must be ISO datetime (UTC Z)',
-    );
+    .refine(isIsoDateTimeUtc, {
+        message:
+            'must be ISO datetime (UTC Z) with second or millisecond precision',
+    });
 
 export const serviceNowDateTime = z
     .string()

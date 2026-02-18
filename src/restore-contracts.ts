@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import {
     EncryptedPayload,
+    canonicalizeIsoDateTimeUtc,
+    isoDateTime,
     serviceNowDateTime,
 } from './schemas';
 
@@ -15,14 +17,15 @@ export const PLAN_HASH_ALGORITHM = 'sha256';
 export const EVIDENCE_CANONICALIZATION_VERSION =
     'evidence.canonical-json.v1';
 
-export const isoDateTimeWithMillis = z
-    .string()
-    .regex(
-        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
-        'must be ISO datetime with milliseconds (UTC Z)',
-    );
+export const isoDateTimeWithMillis = isoDateTime;
 
 export type IsoDateTimeWithMillis = z.infer<typeof isoDateTimeWithMillis>;
+
+export function canonicalizeIsoDateTimeWithMillis(
+    value: string,
+): IsoDateTimeWithMillis {
+    return canonicalizeIsoDateTimeUtc(value);
+}
 
 export const Sha256Hex = z
     .string()

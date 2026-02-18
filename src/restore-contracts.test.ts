@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { CloudEventSchema } from './schemas';
 import {
+    canonicalizeIsoDateTimeWithMillis,
     comparePitRowTuple,
     computeRestorePlanHash,
     selectLatestPitRowTuple,
@@ -331,17 +332,28 @@ test('RrsMetadataEnvelope rejects metadata fields outside allowlist', () => {
     assert(paths.includes('metadata'));
 });
 
-test('RestorePitContract enforces milliseconds and PIT algorithm version', () => {
-    const valid = RestorePitContract.safeParse(pitContract());
-
-    assert.equal(valid.success, true);
-
-    const invalid = RestorePitContract.safeParse({
+test('RestorePitContract accepts second and millisecond UTC timestamps', () => {
+    const secondPrecision = RestorePitContract.safeParse({
         ...pitContract(),
         restore_time: '2026-02-16T12:00:00Z',
     });
 
-    assert.equal(invalid.success, false);
+    const millisPrecision = RestorePitContract.safeParse(pitContract());
+
+    assert.equal(secondPrecision.success, true);
+    assert.equal(millisPrecision.success, true);
+});
+
+test('canonicalizeIsoDateTimeWithMillis normalizes to millis', () => {
+    const secondPrecision = canonicalizeIsoDateTimeWithMillis(
+        '2026-02-16T12:00:00Z',
+    );
+    const millisPrecision = canonicalizeIsoDateTimeWithMillis(
+        '2026-02-16T12:00:00.250Z',
+    );
+
+    assert.equal(secondPrecision, '2026-02-16T12:00:00.000Z');
+    assert.equal(millisPrecision, '2026-02-16T12:00:00.250Z');
 });
 
 test('comparePitRowTuple uses sys_mod_count when available', () => {

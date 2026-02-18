@@ -1,6 +1,10 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { buildEventBatchSchema, CloudEventSchema } from './schemas';
+import {
+    buildEventBatchSchema,
+    canonicalizeIsoDateTimeUtc,
+    CloudEventSchema,
+} from './schemas';
 
 function baseEvent() {
     return {
@@ -42,6 +46,48 @@ test('CloudEventSchema accepts cdc.write with ISO retention_days', () => {
     });
 
     assert.equal(parsed.success, true);
+});
+
+test('CloudEventSchema accepts millisecond UTC timestamps', () => {
+    const parsed = CloudEventSchema.safeParse({
+        ...baseEvent(),
+        time: '2026-02-14T00:00:00.123Z',
+        data: {
+            changed_fields: ['state'],
+            op: 'U',
+            record_sys_id: 'abc123',
+            schema_version: 3,
+            snapshot_enc: encryptedPayload('cdc.write'),
+            sys_updated_on: '2026-02-14 00:00:00',
+            table: 'x_app.ticket',
+        },
+        type: 'cdc.write',
+    });
+
+    assert.equal(parsed.success, true);
+});
+
+test('canonicalizeIsoDateTimeUtc normalizes second precision to millis', () => {
+    const secondPrecision = canonicalizeIsoDateTimeUtc(
+        '2026-02-14T00:00:00Z',
+    );
+    const millisPrecision = canonicalizeIsoDateTimeUtc(
+        '2026-02-14T00:00:00.123Z',
+    );
+
+    assert.equal(secondPrecision, '2026-02-14T00:00:00.000Z');
+    assert.equal(millisPrecision, '2026-02-14T00:00:00.123Z');
+});
+
+test('canonicalizeIsoDateTimeUtc rejects malformed and non-UTC values', () => {
+    assert.throws(
+        () => canonicalizeIsoDateTimeUtc('2026-02-14T00:00:00+00:00'),
+        /must be ISO datetime/,
+    );
+    assert.throws(
+        () => canonicalizeIsoDateTimeUtc('2026-02-30T00:00:00Z'),
+        /must be ISO datetime/,
+    );
 });
 
 test('CloudEventSchema rejects plaintext schema.snapshot payloads', () => {
