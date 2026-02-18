@@ -27,6 +27,73 @@ export function canonicalizeIsoDateTimeWithMillis(
     return canonicalizeIsoDateTimeUtc(value);
 }
 
+const OFFSET_DECIMAL_STRING_REGEX = /^\d+$/;
+const OFFSET_DECIMAL_STRING_ERROR =
+    'must be non-negative integer offset as decimal string';
+
+function normalizeRestoreOffsetDecimalString(
+    value: string | number,
+): string | null {
+    if (typeof value === 'number') {
+        if (
+            !Number.isFinite(value) ||
+            !Number.isInteger(value) ||
+            !Number.isSafeInteger(value) ||
+            value < 0
+        ) {
+            return null;
+        }
+
+        return value.toString(10);
+    }
+
+    if (!OFFSET_DECIMAL_STRING_REGEX.test(value)) {
+        return null;
+    }
+
+    try {
+        return BigInt(value).toString(10);
+    } catch {
+        return null;
+    }
+}
+
+export function isRestoreOffsetDecimalString(value: string): boolean {
+    return normalizeRestoreOffsetDecimalString(value) !== null;
+}
+
+export function canonicalizeRestoreOffsetDecimalString(
+    value: string | number,
+): string {
+    const normalized = normalizeRestoreOffsetDecimalString(value);
+
+    if (!normalized) {
+        throw new Error(OFFSET_DECIMAL_STRING_ERROR);
+    }
+
+    return normalized;
+}
+
+export const RestoreOffsetDecimalString = z
+    .union([z.string(), z.number()])
+    .superRefine((value, ctx) => {
+        if (normalizeRestoreOffsetDecimalString(value) !== null) {
+            return;
+        }
+
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: OFFSET_DECIMAL_STRING_ERROR,
+        });
+    })
+    .transform((value) => {
+        return canonicalizeRestoreOffsetDecimalString(value);
+    });
+
+export type RestoreOffsetDecimalString = z.infer<
+    typeof RestoreOffsetDecimalString
+>;
+
 export const Sha256Hex = z
     .string()
     .regex(
@@ -158,7 +225,7 @@ export const RrsOperationalMetadata = z
         __time: isoDateTimeWithMillis.optional(),
         topic: z.string().min(1).optional(),
         partition: z.number().int().nonnegative().optional(),
-        offset: z.number().int().nonnegative().optional(),
+        offset: RestoreOffsetDecimalString.optional(),
         content_type: z.string().min(1).optional(),
         size_bytes: z.number().int().nonnegative().optional(),
         sha256_plain: Sha256Hex.optional(),
@@ -816,7 +883,7 @@ export const RestoreWatermark = z
         topic: z.string().min(1),
         partition: z.number().int().nonnegative(),
         generation_id: z.string().min(1),
-        indexed_through_offset: z.number().int().nonnegative(),
+        indexed_through_offset: RestoreOffsetDecimalString,
         indexed_through_time: isoDateTimeWithMillis,
         coverage_start: isoDateTimeWithMillis,
         coverage_end: isoDateTimeWithMillis,

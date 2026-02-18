@@ -3,8 +3,10 @@ import { test } from 'node:test';
 import { CloudEventSchema } from './schemas';
 import {
     canonicalizeIsoDateTimeWithMillis,
+    canonicalizeRestoreOffsetDecimalString,
     comparePitRowTuple,
     computeRestorePlanHash,
+    isRestoreOffsetDecimalString,
     selectLatestPitRowTuple,
     PIT_ALGORITHM_VERSION,
     RESTORE_CONTRACT_VERSION,
@@ -111,7 +113,7 @@ function metadataEnvelope() {
             __time: '2026-02-16T12:00:00.123Z',
             topic: 'rez.cdc',
             partition: 2,
-            offset: 1234,
+            offset: '1234',
         },
     };
 }
@@ -213,7 +215,7 @@ function baseWatermark() {
         topic: 'rez.cdc',
         partition: 2,
         generation_id: 'gen-01',
-        indexed_through_offset: 100,
+        indexed_through_offset: '100',
         indexed_through_time: '2026-02-16T12:00:00.000Z',
         coverage_start: '2026-02-16T00:00:00.000Z',
         coverage_end: '2026-02-16T12:00:00.000Z',
@@ -354,6 +356,93 @@ test('canonicalizeIsoDateTimeWithMillis normalizes to millis', () => {
 
     assert.equal(secondPrecision, '2026-02-16T12:00:00.000Z');
     assert.equal(millisPrecision, '2026-02-16T12:00:00.250Z');
+});
+
+test('RrsMetadataEnvelope canonicalizes legacy numeric offset input to string', () => {
+    const parsed = RrsMetadataEnvelope.safeParse({
+        ...metadataEnvelope(),
+        metadata: {
+            ...metadataEnvelope().metadata,
+            offset: 1234,
+        },
+    });
+
+    assert.equal(parsed.success, true);
+    if (!parsed.success) {
+        return;
+    }
+
+    assert.equal(typeof parsed.data.metadata.offset, 'string');
+    assert.equal(parsed.data.metadata.offset, '1234');
+});
+
+test('RestoreWatermark accepts large decimal-string offsets beyond safe integer range', () => {
+    const largeOffset = '900719925474099312345678901234567890';
+    const parsed = RestoreWatermark.safeParse({
+        ...baseWatermark(),
+        indexed_through_offset: largeOffset,
+    });
+
+    assert.equal(parsed.success, true);
+    if (!parsed.success) {
+        return;
+    }
+
+    assert.equal(parsed.data.indexed_through_offset, largeOffset);
+});
+
+test('offset decimal-string helper canonicalizes numeric input', () => {
+    assert.equal(
+        canonicalizeRestoreOffsetDecimalString('000000123'),
+        '123',
+    );
+    assert.equal(
+        canonicalizeRestoreOffsetDecimalString(42),
+        '42',
+    );
+    assert.equal(isRestoreOffsetDecimalString('9007199254740993123'), true);
+    assert.equal(isRestoreOffsetDecimalString('-1'), false);
+});
+
+test('offset fields reject signed, decimal, and non-numeric strings', () => {
+    const invalidOffsets = ['-1', '+1', '1.5', 'abc'];
+
+    for (const invalidOffset of invalidOffsets) {
+        const metadataParsed = RrsMetadataEnvelope.safeParse({
+            ...metadataEnvelope(),
+            metadata: {
+                ...metadataEnvelope().metadata,
+                offset: invalidOffset,
+            },
+        });
+
+        assert.equal(metadataParsed.success, false);
+
+        const watermarkParsed = RestoreWatermark.safeParse({
+            ...baseWatermark(),
+            indexed_through_offset: invalidOffset,
+        });
+
+        assert.equal(watermarkParsed.success, false);
+    }
+});
+
+test('offset fields reject unsafe integer numbers', () => {
+    const unsafeOffset = Number.MAX_SAFE_INTEGER + 1;
+    const metadataParsed = RrsMetadataEnvelope.safeParse({
+        ...metadataEnvelope(),
+        metadata: {
+            ...metadataEnvelope().metadata,
+            offset: unsafeOffset,
+        },
+    });
+    const watermarkParsed = RestoreWatermark.safeParse({
+        ...baseWatermark(),
+        indexed_through_offset: unsafeOffset,
+    });
+
+    assert.equal(metadataParsed.success, false);
+    assert.equal(watermarkParsed.success, false);
 });
 
 test('comparePitRowTuple uses sys_mod_count when available', () => {
