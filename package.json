@@ -4,6 +4,9 @@
     "description": "Shared CloudEvent schemas, types, and routing helpers for Rezilient services",
     "type": "commonjs",
     "main": "dist/index.js",
+    "engines": {
+        "node": ">=24.0.0"
+    },
     "types": "dist/index.d.ts",
     "exports": {
         ".": "./dist/index.js"
