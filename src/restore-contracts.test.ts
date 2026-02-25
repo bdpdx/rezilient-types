@@ -2,6 +2,8 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { CloudEventSchema } from './schemas';
 import {
+    Sha256Hex,
+    canonicalJsonStringify,
     canonicalizeIsoDateTimeWithMillis,
     canonicalizeRestoreOffsetDecimalString,
     comparePitRowTuple,
@@ -14,15 +16,26 @@ import {
     EVIDENCE_CANONICALIZATION_VERSION,
     PLAN_HASH_ALGORITHM,
     PLAN_HASH_INPUT_VERSION,
-    RrsMetadataEnvelope,
+    RestoreApprovalMetadata,
+    RestoreApprovalState,
+    RestoreCapability,
     RestoreConflict,
+    RestoreEncryptedValueEnvelope,
     RestoreEvidence,
+    RestoreEvidenceArtifactHash,
+    RestoreEvidenceSignature,
     RestoreJob,
+    RestoreJobStatus,
     RestoreJournalEntry,
+    RestoreMediaCandidate,
     RestorePitContract,
     RestorePlan,
     RestorePlanHashInput,
+    RestorePlanHashRowInput,
+    RestoreReasonCode,
+    RestoreScope,
     RestoreWatermark,
+    RrsMetadataEnvelope,
 } from './restore-contracts';
 
 const HASH_A = 'a'.repeat(64);
@@ -532,6 +545,27 @@ test('computeRestorePlanHash is deterministic for identical input', () => {
     assert.equal(firstHash.canonical_json, secondHash.canonical_json);
 });
 
+test('Sha256Hex canonicalizes uppercase hex to lowercase', () => {
+    const upper = 'A'.repeat(64);
+    const mixed = 'aAbBcCdD'.repeat(8);
+
+    const parsedUpper = Sha256Hex.parse(upper);
+    const parsedMixed = Sha256Hex.parse(mixed);
+
+    assert.equal(parsedUpper, 'a'.repeat(64));
+    assert.equal(parsedMixed, mixed.toLowerCase());
+});
+
+test('canonicalJsonStringify skips undefined values in objects', () => {
+    const result = canonicalJsonStringify({
+        a: 1,
+        b: undefined,
+        c: 'hello',
+    });
+
+    assert.equal(result, '{"a":1,"c":"hello"}');
+});
+
 test('RestorePlanHashInput rejects plaintext value material', () => {
     const parsed = RestorePlanHashInput.safeParse({
         contract_version: RESTORE_CONTRACT_VERSION,
@@ -766,4 +800,462 @@ test('CloudEvent envelope remains compatible with restore metadata mapping', () 
     });
 
     assert.equal(metadataParsed.success, true);
+});
+
+// Stage 5: Enums and Leaf Schemas
+
+test('Sha256Hex rejects invalid hex values', () => {
+    const tooShort = Sha256Hex.safeParse('a'.repeat(63));
+    const tooLong = Sha256Hex.safeParse('a'.repeat(65));
+    const nonHex = Sha256Hex.safeParse('g'.repeat(64));
+    const empty = Sha256Hex.safeParse('');
+
+    assert.equal(tooShort.success, false);
+    assert.equal(tooLong.success, false);
+    assert.equal(nonHex.success, false);
+    assert.equal(empty.success, false);
+});
+
+test('RestoreCapability accepts all valid values', () => {
+    const values = [
+        'restore_execute',
+        'restore_delete',
+        'restore_override_caps',
+        'restore_schema_override',
+    ];
+
+    for (const value of values) {
+        assert.equal(
+            RestoreCapability.safeParse(value).success,
+            true,
+            `expected ${value} to be valid`,
+        );
+    }
+
+    assert.equal(
+        RestoreCapability.safeParse('invalid').success,
+        false,
+    );
+});
+
+test('RestoreReasonCode accepts representative values and rejects invalid', () => {
+    const valid = [
+        'none',
+        'queued_scope_lock',
+        'blocked_plan_hash_mismatch',
+        'failed_internal_error',
+    ];
+
+    for (const value of valid) {
+        assert.equal(
+            RestoreReasonCode.safeParse(value).success,
+            true,
+            `expected ${value} to be valid`,
+        );
+    }
+
+    assert.equal(
+        RestoreReasonCode.safeParse('made_up_code').success,
+        false,
+    );
+});
+
+test('RestoreApprovalState accepts all values', () => {
+    const values = [
+        'placeholder_not_enforced',
+        'approval_not_required',
+        'requested',
+        'approved',
+        'rejected',
+        'expired',
+    ];
+
+    for (const value of values) {
+        assert.equal(
+            RestoreApprovalState.safeParse(value).success,
+            true,
+            `expected ${value} to be valid`,
+        );
+    }
+});
+
+test('RestoreScope table mode accepts without record filter', () => {
+    const parsed = RestoreScope.safeParse({
+        mode: 'table',
+        tables: ['x_app.ticket'],
+    });
+
+    assert.equal(parsed.success, true);
+});
+
+test('RestoreScope record mode rejects without record filter', () => {
+    const parsed = RestoreScope.safeParse({
+        mode: 'record',
+        tables: ['x_app.ticket'],
+    });
+
+    assert.equal(parsed.success, false);
+});
+
+test('RestoreScope record mode accepts with encoded_query', () => {
+    const parsed = RestoreScope.safeParse({
+        mode: 'record',
+        tables: ['x_app.ticket'],
+        encoded_query: 'active=true',
+    });
+
+    assert.equal(parsed.success, true);
+});
+
+test('RestoreScope record mode accepts with record_sys_ids', () => {
+    const parsed = RestoreScope.safeParse({
+        mode: 'record',
+        tables: ['x_app.ticket'],
+        record_sys_ids: ['abc123'],
+    });
+
+    assert.equal(parsed.success, true);
+});
+
+test('RestoreScope column mode requires columns and record filter', () => {
+    const noColumns = RestoreScope.safeParse({
+        mode: 'column',
+        tables: ['x_app.ticket'],
+        record_sys_ids: ['abc123'],
+    });
+    const noFilter = RestoreScope.safeParse({
+        mode: 'column',
+        tables: ['x_app.ticket'],
+        columns: ['state'],
+    });
+    const valid = RestoreScope.safeParse({
+        mode: 'column',
+        tables: ['x_app.ticket'],
+        columns: ['state', 'priority'],
+        encoded_query: 'active=true',
+    });
+
+    assert.equal(noColumns.success, false);
+    assert.equal(noFilter.success, false);
+    assert.equal(valid.success, true);
+});
+
+test('RestoreApprovalMetadata accepts full approval with all optional fields', () => {
+    const parsed = RestoreApprovalMetadata.safeParse({
+        approval_required: true,
+        approval_state: 'approved',
+        approval_policy_id: 'policy-01',
+        approval_requested_at: '2026-02-16T12:00:00.000Z',
+        approval_requested_by: 'admin@example.com',
+        approval_decided_at: '2026-02-16T12:05:00.000Z',
+        approval_decided_by: 'manager@example.com',
+        approval_decision: 'approve',
+        approval_decision_reason: 'Authorized by SOC team',
+        approval_external_ref: 'RITM001234',
+        approval_snapshot_hash: 'a'.repeat(64),
+        approval_valid_until: '2026-02-17T12:00:00.000Z',
+        approval_revalidated_at: '2026-02-16T18:00:00.000Z',
+        approval_revalidation_result: 'valid',
+        approval_placeholder_mode: 'mvp_not_enforced',
+    });
+
+    assert.equal(parsed.success, true);
+});
+
+// Stage 6: Compound Schemas
+
+test('RestoreMediaCandidate requires attachment_sys_id or media_id', () => {
+    const neither = RestoreMediaCandidate.safeParse({
+        candidate_id: 'candidate-01',
+        table: 'x_app.ticket',
+        record_sys_id: 'rec-01',
+        size_bytes: 128,
+        sha256_plain: 'b'.repeat(64),
+    });
+
+    assert.equal(neither.success, false);
+});
+
+test('RestoreMediaCandidate accepts with media_id only', () => {
+    const parsed = RestoreMediaCandidate.safeParse({
+        candidate_id: 'candidate-01',
+        table: 'x_app.ticket',
+        record_sys_id: 'rec-01',
+        media_id: 'media-01',
+        size_bytes: 128,
+        sha256_plain: 'b'.repeat(64),
+    });
+
+    assert.equal(parsed.success, true);
+});
+
+test('RestoreMediaCandidate rejects metadata table mismatch', () => {
+    const parsed = RestoreMediaCandidate.safeParse({
+        candidate_id: 'candidate-01',
+        table: 'x_app.ticket',
+        record_sys_id: 'rec-01',
+        attachment_sys_id: 'att-01',
+        size_bytes: 128,
+        sha256_plain: 'b'.repeat(64),
+        metadata: {
+            allowlist_version: 'rrs.metadata.allowlist.v1',
+            metadata: {
+                table: 'x_app.other_table',
+                record_sys_id: 'rec-01',
+            },
+        },
+    });
+
+    assert.equal(parsed.success, false);
+});
+
+test('RestoreEncryptedValueEnvelope rejects all plaintext fields', () => {
+    const diffPlain = RestoreEncryptedValueEnvelope.safeParse({
+        diff_plain: { state: '3' },
+    });
+    const beforePlain = RestoreEncryptedValueEnvelope.safeParse({
+        before_image_plain: { state: '1' },
+    });
+    const afterPlain = RestoreEncryptedValueEnvelope.safeParse({
+        after_image_plain: { state: '2' },
+    });
+
+    assert.equal(diffPlain.success, false);
+    assert.equal(beforePlain.success, false);
+    assert.equal(afterPlain.success, false);
+});
+
+test('RestoreEncryptedValueEnvelope accepts encrypted-only fields', () => {
+    const parsed = RestoreEncryptedValueEnvelope.safeParse({
+        diff_enc: encryptedPayload('diff'),
+        before_image_enc: encryptedPayload('before'),
+        after_image_enc: encryptedPayload('after'),
+    });
+
+    assert.equal(parsed.success, true);
+});
+
+test('RestorePlanHashRowInput skip action does not require values', () => {
+    const parsed = RestorePlanHashRowInput.safeParse({
+        row_id: 'row-skip',
+        table: 'x_app.ticket',
+        record_sys_id: 'abc123',
+        action: 'skip',
+        precondition_hash: HASH_A,
+        metadata: metadataEnvelope(),
+    });
+
+    assert.equal(parsed.success, true);
+});
+
+test('RestorePlanHashRowInput non-skip action requires encrypted values', () => {
+    const parsed = RestorePlanHashRowInput.safeParse({
+        row_id: 'row-update',
+        table: 'x_app.ticket',
+        record_sys_id: 'abc123',
+        action: 'update',
+        precondition_hash: HASH_A,
+        metadata: metadataEnvelope(),
+    });
+
+    assert.equal(parsed.success, false);
+});
+
+test('RestorePlanHashRowInput rejects metadata table mismatch', () => {
+    const parsed = RestorePlanHashRowInput.safeParse({
+        row_id: 'row-01',
+        table: 'x_app.ticket',
+        record_sys_id: 'abc123',
+        action: 'update',
+        precondition_hash: HASH_A,
+        metadata: {
+            allowlist_version: RESTORE_METADATA_ALLOWLIST_VERSION,
+            metadata: {
+                ...metadataEnvelope().metadata,
+                table: 'x_app.other_table',
+            },
+        },
+        values: {
+            diff_enc: encryptedPayload('diff'),
+        },
+    });
+
+    assert.equal(parsed.success, false);
+});
+
+test('canonicalJsonStringify sorts nested object keys deterministically', () => {
+    const result = canonicalJsonStringify({
+        z: { b: 2, a: 1 },
+        a: [3, 1, 2],
+        m: null,
+    });
+
+    assert.equal(result, '{"a":[3,1,2],"m":null,"z":{"a":1,"b":2}}');
+});
+
+test('canonicalJsonStringify handles primitive values', () => {
+    assert.equal(canonicalJsonStringify(null), 'null');
+    assert.equal(canonicalJsonStringify(true), 'true');
+    assert.equal(canonicalJsonStringify(42), '42');
+    assert.equal(canonicalJsonStringify('hello'), '"hello"');
+});
+
+test('computeRestorePlanHash produces different hashes for different inputs', () => {
+    const inputA = RestorePlanHashInput.parse(basePlanHashInput());
+    const inputB = RestorePlanHashInput.parse({
+        ...basePlanHashInput(),
+        action_counts: {
+            ...actionCounts(),
+            update: 2,
+        },
+    });
+
+    const hashA = computeRestorePlanHash(inputA);
+    const hashB = computeRestorePlanHash(inputB);
+
+    assert.notEqual(hashA.plan_hash, hashB.plan_hash);
+});
+
+// Stage 7: Top-Level Schema Variants
+
+test('RestoreJobStatus accepts all valid states', () => {
+    const states = [
+        'queued', 'running', 'paused',
+        'completed', 'failed', 'cancelled',
+    ];
+
+    for (const status of states) {
+        assert.equal(
+            RestoreJobStatus.safeParse(status).success,
+            true,
+            `expected ${status} to be valid`,
+        );
+    }
+});
+
+test('RestoreJob accepts running and completed states', () => {
+    const running = RestoreJob.safeParse({
+        ...baseJob(),
+        status: 'running',
+        status_reason_code: 'none',
+    });
+    const completed = RestoreJob.safeParse({
+        ...baseJob(),
+        status: 'completed',
+        status_reason_code: 'none',
+    });
+
+    assert.equal(running.success, true);
+    assert.equal(completed.success, true);
+});
+
+test('RestoreWatermark accepts stale with preview_only', () => {
+    const parsed = RestoreWatermark.safeParse({
+        ...baseWatermark(),
+        freshness: 'stale',
+        executability: 'preview_only',
+    });
+
+    assert.equal(parsed.success, true);
+});
+
+test('RestoreWatermark accepts unknown freshness with blocked', () => {
+    const parsed = RestoreWatermark.safeParse({
+        ...baseWatermark(),
+        freshness: 'unknown',
+        executability: 'blocked',
+        reason_code: 'blocked_freshness_unknown',
+    });
+
+    assert.equal(parsed.success, true);
+});
+
+test('RestoreWatermark rejects unknown freshness with executable', () => {
+    const parsed = RestoreWatermark.safeParse({
+        ...baseWatermark(),
+        freshness: 'unknown',
+        executability: 'executable',
+    });
+
+    assert.equal(parsed.success, false);
+});
+
+test('RestoreJournalEntry skipped outcome does not require before_image_enc', () => {
+    const parsed = RestoreJournalEntry.safeParse({
+        ...baseJournalEntry(),
+        before_image_enc: undefined,
+        outcome: 'skipped',
+    });
+
+    assert.equal(parsed.success, true);
+});
+
+test('RestoreJournalEntry failed outcome does not require before_image_enc', () => {
+    const parsed = RestoreJournalEntry.safeParse({
+        ...baseJournalEntry(),
+        before_image_enc: undefined,
+        outcome: 'failed',
+        error_code: 'failed_internal_error',
+    });
+
+    assert.equal(parsed.success, true);
+});
+
+test('RestoreEvidenceArtifactHash accepts valid hash entry', () => {
+    const parsed = RestoreEvidenceArtifactHash.safeParse({
+        artifact_id: 'plan.json',
+        sha256: 'c'.repeat(64),
+        bytes: 2048,
+    });
+
+    assert.equal(parsed.success, true);
+});
+
+test('RestoreEvidenceSignature accepts rsa-pss-sha256 algorithm', () => {
+    const parsed = RestoreEvidenceSignature.safeParse({
+        signature_algorithm: 'rsa-pss-sha256',
+        signer_key_id: 'signer-rsa-01',
+        signature: 'rsa-signature-bytes',
+        signature_verification: 'verified',
+        signed_at: '2026-02-16T12:14:00.000Z',
+    });
+
+    assert.equal(parsed.success, true);
+});
+
+test('RestoreEvidenceSignature accepts all verification states', () => {
+    const states = [
+        'verified',
+        'verification_pending',
+        'verification_failed',
+    ];
+
+    for (const state of states) {
+        const parsed = RestoreEvidenceSignature.safeParse({
+            signature_algorithm: 'ed25519',
+            signer_key_id: 'signer-01',
+            signature: 'sig-bytes',
+            signature_verification: state,
+            signed_at: '2026-02-16T12:14:00.000Z',
+        });
+
+        assert.equal(
+            parsed.success,
+            true,
+            `expected ${state} to be valid`,
+        );
+    }
+});
+
+test('RestoreEvidence accepts multiple artifact hashes', () => {
+    const parsed = RestoreEvidence.safeParse({
+        ...baseEvidence(),
+        artifact_hashes: [
+            { artifact_id: 'plan.json', sha256: HASH_A, bytes: 1024 },
+            { artifact_id: 'journal.jsonl', sha256: HASH_B, bytes: 2048 },
+            { artifact_id: 'manifest.json', sha256: HASH_C, bytes: 512 },
+        ],
+    });
+
+    assert.equal(parsed.success, true);
 });

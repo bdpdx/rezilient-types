@@ -161,7 +161,6 @@ export const ExtensionsSchema = z
             .optional(),
         retention_ttl_ms: z.number().int().positive().optional(),
     })
-    .partial()
     .strict();
 
 export type CloudEventExtensions = z.infer<typeof ExtensionsSchema>;

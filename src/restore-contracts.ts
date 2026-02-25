@@ -99,7 +99,8 @@ export const Sha256Hex = z
     .regex(
         /^[a-f0-9]{64}$/i,
         'must be 64-char SHA-256 hex digest',
-    );
+    )
+    .transform((v) => v.toLowerCase());
 
 export type Sha256Hex = z.infer<typeof Sha256Hex>;
 
@@ -731,6 +732,7 @@ function toCanonicalJson(value: unknown): CanonicalJson {
 
     if (typeof value === 'object') {
         const entries = Object.entries(value as Record<string, unknown>)
+            .filter(([, v]) => v !== undefined)
             .sort((left, right) => left[0].localeCompare(right[0]));
         const out: {
             [key: string]: CanonicalJson;

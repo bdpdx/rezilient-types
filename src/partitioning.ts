@@ -9,6 +9,13 @@ export function derivePartitionKey(event: any): string {
     switch (type) {
         case 'cdc.delete':
         case 'cdc.write':
+            if (!data.table || !data.record_sys_id) {
+                throw new Error(
+                    'CDC event missing required partition key fields: ' +
+                    `table=${data.table}, ` +
+                    `record_sys_id=${data.record_sys_id}`,
+                );
+            }
             return `${data.table}/${data.record_sys_id}`;
         case 'schema.change':
         case 'schema.snapshot':
@@ -93,7 +100,13 @@ export function mapTopic(type: string, useTestTopics = false, data?: any): strin
             return 'rez.test.repair';
         }
 
-        return 'rez.test.cdc';
+        if (type === 'cdc.write' || type === 'cdc.delete') {
+            return 'rez.test.cdc';
+        }
+
+        throw new Error(
+            `Unknown event type for topic mapping: ${type}`,
+        );
     }
 
     if (type === 'schema.change' || type === 'schema.snapshot') {
@@ -109,5 +122,11 @@ export function mapTopic(type: string, useTestTopics = false, data?: any): strin
         return 'rez.repair';
     }
 
-    return 'rez.cdc';
+    if (type === 'cdc.write' || type === 'cdc.delete') {
+        return 'rez.cdc';
+    }
+
+    throw new Error(
+        `Unknown event type for topic mapping: ${type}`,
+    );
 }

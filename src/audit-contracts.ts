@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { isoDateTime } from './schemas';
-
-const SHA256_HEX = /^[a-f0-9]{64}$/i;
+import { Sha256Hex } from './restore-contracts';
 
 const AUDIT_ACTION_REGEX = /^[a-z][a-z0-9_]*$/;
 
@@ -86,7 +85,7 @@ export const CrossServiceAuditEvent = z
         instance_id: z.string().min(1).optional(),
         source: z.string().min(1).optional(),
         plan_id: z.string().min(1).optional(),
-        plan_hash: z.string().regex(SHA256_HEX).optional(),
+        plan_hash: Sha256Hex.optional(),
         job_id: z.string().min(1).optional(),
         reason_code: z.string().min(1).optional(),
         actor: AuditActor.optional(),
@@ -266,7 +265,7 @@ export const LegacyRestoreAuditContext = z
         instance_id: z.string().min(1),
         source: z.string().min(1),
         plan_id: z.string().min(1).optional(),
-        plan_hash: z.string().regex(SHA256_HEX).optional(),
+        plan_hash: Sha256Hex.optional(),
     })
     .strict()
     .superRefine((context, ctx) => {
@@ -406,8 +405,12 @@ export function fromLegacyAuthAuditEvent(
         metadata: {
             ...parsed.metadata,
             legacy_event_type: parsed.event_type,
-            client_id: parsed.client_id,
-            service_scope: parsed.service_scope,
+            ...(parsed.client_id !== undefined
+                ? { client_id: parsed.client_id }
+                : {}),
+            ...(parsed.service_scope !== undefined
+                ? { service_scope: parsed.service_scope }
+                : {}),
         },
     });
 }
