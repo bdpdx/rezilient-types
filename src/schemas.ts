@@ -149,9 +149,9 @@ export type CDCWriteData = z.infer<typeof CDCWriteData>;
 
 export const ExtensionsSchema = z
     .object({
+        instance_id: z.string().min(1).optional(),
         partition_key: z.string().min(1).optional(),
         producer: z.string().min(1).optional(),
-        seq: z.number().int().nonnegative().optional(),
         retention: z.string().regex(/^P\d+D$/i).optional(),
         retention_days: z
             .union([
@@ -160,6 +160,9 @@ export const ExtensionsSchema = z
             ])
             .optional(),
         retention_ttl_ms: z.number().int().positive().optional(),
+        seq: z.number().int().nonnegative().optional(),
+        source: z.string().min(1).optional(),
+        tenant_id: z.string().min(1).optional(),
     })
     .strict();
 

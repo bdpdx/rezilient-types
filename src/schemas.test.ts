@@ -64,6 +64,29 @@ test('CloudEventSchema accepts cdc.write with ISO retention_days', () => {
     assert.equal(parsed.success, true);
 });
 
+test('CloudEventSchema accepts canonical identity extensions', () => {
+    const parsed = CloudEventSchema.safeParse({
+        ...baseEvent(),
+        data: {
+            changed_fields: ['state'],
+            op: 'U',
+            record_sys_id: 'abc123',
+            schema_version: 3,
+            snapshot_enc: encryptedPayload('cdc.write'),
+            sys_updated_on: '2026-02-14 00:00:00',
+            table: 'x_app.ticket',
+        },
+        extensions: {
+            instance_id: 'i_stage_001',
+            source: 'sn://dev207082.service-now.com',
+            tenant_id: 't_stage_001',
+        },
+        type: 'cdc.write',
+    });
+
+    assert.equal(parsed.success, true);
+});
+
 test('CloudEventSchema accepts millisecond UTC timestamps', () => {
     const parsed = CloudEventSchema.safeParse({
         ...baseEvent(),
@@ -563,12 +586,15 @@ test('RepairReportData accepts minimal required fields', () => {
 
 test('ExtensionsSchema accepts all optional fields', () => {
     const parsed = ExtensionsSchema.safeParse({
+        instance_id: 'i_stage_001',
         partition_key: 'x_app.ticket/abc123',
         producer: 'sn-agent-v2',
-        seq: 0,
         retention: 'P30D',
         retention_days: 30,
         retention_ttl_ms: 2592000000,
+        seq: 0,
+        source: 'sn://dev207082.service-now.com',
+        tenant_id: 't_stage_001',
     });
 
     assert.equal(parsed.success, true);
@@ -578,11 +604,15 @@ test('ExtensionsSchema rejects invalid retention and extra fields', () => {
     const badRetention = ExtensionsSchema.safeParse({
         retention: 'invalid',
     });
+    const badIdentity = ExtensionsSchema.safeParse({
+        instance_id: '',
+    });
     const extraField = ExtensionsSchema.safeParse({
         unknown_field: true,
     });
 
     assert.equal(badRetention.success, false);
+    assert.equal(badIdentity.success, false);
     assert.equal(extraField.success, false);
 });
 
