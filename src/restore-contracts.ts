@@ -922,6 +922,17 @@ export const RestoreWatermark = z
 
 export type RestoreWatermark = z.infer<typeof RestoreWatermark>;
 
+export const RestoreDryRunWatermarkHint = z
+    .object({
+        topic: z.string().min(1),
+        partition: z.number().int().nonnegative().optional(),
+    })
+    .strict();
+
+export type RestoreDryRunWatermarkHint = z.infer<
+    typeof RestoreDryRunWatermarkHint
+>;
+
 export const RestoreJournalEntry = z
     .object({
         contract_version: z.literal(RESTORE_CONTRACT_VERSION),

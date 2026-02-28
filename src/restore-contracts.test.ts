@@ -20,6 +20,7 @@ import {
     RestoreApprovalState,
     RestoreCapability,
     RestoreConflict,
+    RestoreDryRunWatermarkHint,
     RestoreEncryptedValueEnvelope,
     RestoreEvidence,
     RestoreEvidenceArtifactHash,
@@ -1178,6 +1179,39 @@ test('RestoreWatermark rejects unknown freshness with executable', () => {
     });
 
     assert.equal(parsed.success, false);
+});
+
+test('RestoreDryRunWatermarkHint accepts topic-only hint', () => {
+    const parsed = RestoreDryRunWatermarkHint.safeParse({
+        topic: 'rez.cdc',
+    });
+
+    assert.equal(parsed.success, true);
+});
+
+test('RestoreDryRunWatermarkHint accepts explicit partition hint', () => {
+    const parsed = RestoreDryRunWatermarkHint.safeParse({
+        topic: 'rez.cdc',
+        partition: 3,
+    });
+
+    assert.equal(parsed.success, true);
+});
+
+test('RestoreDryRunWatermarkHint rejects malformed hints', () => {
+    const malformedHints = [
+        {},
+        { topic: '' },
+        { topic: 'rez.cdc', partition: -1 },
+        { topic: 'rez.cdc', partition: 1, unexpected: true },
+    ];
+
+    for (const malformedHint of malformedHints) {
+        const parsed = RestoreDryRunWatermarkHint.safeParse(
+            malformedHint,
+        );
+        assert.equal(parsed.success, false);
+    }
 });
 
 test('RestoreJournalEntry skipped outcome does not require before_image_enc', () => {
