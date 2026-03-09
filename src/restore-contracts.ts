@@ -933,6 +933,70 @@ export type RestoreDryRunWatermarkHint = z.infer<
     typeof RestoreDryRunWatermarkHint
 >;
 
+export const RestoreDeleteCandidate = z
+    .object({
+        candidate_id: z.string().min(1),
+        row_id: z.string().min(1),
+        table: z.string().min(1),
+        record_sys_id: z.string().min(1),
+        decision: z.enum(['allow_deletion', 'skip_deletion']).optional(),
+    })
+    .strict();
+
+export type RestoreDeleteCandidate = z.infer<typeof RestoreDeleteCandidate>;
+
+export const RestorePitCandidate = z
+    .object({
+        row_id: z.string().min(1),
+        table: z.string().min(1),
+        record_sys_id: z.string().min(1),
+        versions: z.array(RestorePitRowTuple).min(1),
+    })
+    .strict();
+
+export type RestorePitCandidate = z.infer<typeof RestorePitCandidate>;
+
+export const RestoreDryRunRequestWatermark = z.union([
+    RestoreWatermark,
+    RestoreDryRunWatermarkHint,
+]);
+
+export type RestoreDryRunRequestWatermark = z.infer<
+    typeof RestoreDryRunRequestWatermark
+>;
+
+export const RestoreDryRunCompatibilityAdapter = z
+    .object({
+        rows: z.array(RestorePlanHashRowInput).min(1),
+        watermarks: z.array(RestoreDryRunRequestWatermark).min(1),
+        pit_candidates: z.array(RestorePitCandidate).default([]),
+    })
+    .strict();
+
+export type RestoreDryRunCompatibilityAdapter = z.infer<
+    typeof RestoreDryRunCompatibilityAdapter
+>;
+
+export const RestoreDryRunRequest = z
+    .object({
+        tenant_id: z.string().min(1),
+        instance_id: z.string().min(1),
+        source: z.string().min(1),
+        plan_id: z.string().min(1),
+        requested_by: z.string().min(1),
+        pit: RestorePitContract,
+        scope: RestoreScope,
+        execution_options: RestoreExecutionOptions,
+        conflicts: z.array(RestoreConflict).default([]),
+        delete_candidates: z.array(RestoreDeleteCandidate).default([]),
+        media_candidates: z.array(RestoreMediaCandidate).default([]),
+        approval: RestoreApprovalMetadata.optional(),
+        compatibility_adapter: RestoreDryRunCompatibilityAdapter.optional(),
+    })
+    .strict();
+
+export type RestoreDryRunRequest = z.infer<typeof RestoreDryRunRequest>;
+
 export const RestoreJournalEntry = z
     .object({
         contract_version: z.literal(RESTORE_CONTRACT_VERSION),

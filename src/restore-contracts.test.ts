@@ -20,6 +20,8 @@ import {
     RestoreApprovalState,
     RestoreCapability,
     RestoreConflict,
+    RestoreDryRunCompatibilityAdapter,
+    RestoreDryRunRequest,
     RestoreDryRunWatermarkHint,
     RestoreEncryptedValueEnvelope,
     RestoreEvidence,
@@ -237,6 +239,19 @@ function baseWatermark() {
         executability: 'executable' as const,
         reason_code: 'none' as const,
         measured_at: '2026-02-16T12:12:00.000Z',
+    };
+}
+
+function baseDryRunRequest() {
+    return {
+        tenant_id: 'tenant-acme',
+        instance_id: 'sn-dev-01',
+        source: 'sn://acme-dev.service-now.com',
+        plan_id: 'plan-01',
+        requested_by: 'operator@example.com',
+        pit: pitContract(),
+        scope: scopeContract(),
+        execution_options: executionOptions(),
     };
 }
 
@@ -718,6 +733,61 @@ test('RestoreWatermark blocks executable state when freshness is stale', () => {
     const valid = RestoreWatermark.safeParse(baseWatermark());
 
     assert.equal(valid.success, true);
+});
+
+test('RestoreDryRunRequest accepts scope-driven request shape', () => {
+    const parsed = RestoreDryRunRequest.safeParse(baseDryRunRequest());
+
+    assert.equal(parsed.success, true);
+    if (!parsed.success) {
+        return;
+    }
+
+    assert.equal(parsed.data.conflicts.length, 0);
+    assert.equal(parsed.data.delete_candidates.length, 0);
+    assert.equal(parsed.data.media_candidates.length, 0);
+    assert.equal(parsed.data.compatibility_adapter, undefined);
+});
+
+test('RestoreDryRunRequest rejects legacy top-level row payload fields', () => {
+    const parsed = RestoreDryRunRequest.safeParse({
+        ...baseDryRunRequest(),
+        rows: [hashRowInput()],
+        watermarks: [{
+            topic: 'rez.cdc',
+        }],
+        pit_candidates: [{
+            row_id: 'row-01',
+            table: 'x_app.ticket',
+            record_sys_id: 'abc123',
+            versions: [{
+                sys_updated_on: '2026-02-16 12:00:00',
+                __time: '2026-02-16T12:00:00.100Z',
+                event_id: 'evt-01',
+            }],
+        }],
+    });
+
+    assert.equal(parsed.success, false);
+});
+
+test('RestoreDryRunCompatibilityAdapter validates legacy row material', () => {
+    const parsed = RestoreDryRunCompatibilityAdapter.safeParse({
+        rows: [hashRowInput()],
+        watermarks: [baseWatermark()],
+        pit_candidates: [{
+            row_id: 'row-01',
+            table: 'x_app.ticket',
+            record_sys_id: 'abc123',
+            versions: [{
+                sys_updated_on: '2026-02-16 12:00:00',
+                __time: '2026-02-16T12:00:00.100Z',
+                event_id: 'evt-01',
+            }],
+        }],
+    });
+
+    assert.equal(parsed.success, true);
 });
 
 test('RestoreJournalEntry rejects plaintext and enforces before-image', () => {
