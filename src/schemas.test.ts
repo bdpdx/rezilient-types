@@ -172,6 +172,7 @@ test('CloudEventSchema enforces media compression enum strictness', () => {
             size_bytes: 123,
             content_type: 'image/png',
             sha256_plain: 'deadbeef',
+            sha256_ciphertext: 'beadfeed',
             media_id: 'media_01',
             blob_enc: {
                 alg: 'AES-256-CBC',
@@ -479,6 +480,7 @@ test('MediaManifestData accepts valid manifest', () => {
         size_bytes: 1024,
         content_type: 'image/png',
         sha256_plain: 'a'.repeat(64),
+        sha256_ciphertext: 'b'.repeat(64),
         media_id: 'media-01',
         blob_enc: {
             alg: 'AES-256-CBC',
@@ -495,6 +497,36 @@ test('MediaManifestData accepts valid manifest', () => {
     });
 
     assert.equal(parsed.success, true);
+});
+
+test('MediaManifestData rejects empty sha256_ciphertext when present', () => {
+    const parsed = MediaManifestData.safeParse({
+        op: 'I',
+        table: 'x_app.ticket',
+        record_sys_id: 'rec-01',
+        attachment_sys_id: 'att-01',
+        sys_created_on: '2026-02-16 12:00:00',
+        sys_updated_on: '2026-02-16 12:00:00',
+        size_bytes: 1024,
+        content_type: 'image/png',
+        sha256_plain: 'a'.repeat(64),
+        sha256_ciphertext: '',
+        media_id: 'media-01',
+        blob_enc: {
+            alg: 'AES-256-CBC',
+            module: 'x_rezrp_rezilient.encrypter',
+            format: 'kmf',
+            compression: 'gzip',
+            chunking: {
+                chunk_size_bytes: 4096,
+                chunk_count: 1,
+                format: 'length_prefixed',
+            },
+        },
+        meta_enc: encPayload(),
+    });
+
+    assert.equal(parsed.success, false);
 });
 
 test('MediaMetaData rejects insert operation', () => {

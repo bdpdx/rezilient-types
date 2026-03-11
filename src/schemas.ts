@@ -272,6 +272,7 @@ export const MediaManifestData = z
         size_bytes: z.number().int().nonnegative(),
         content_type: z.string().min(1),
         sha256_plain: z.string().min(1),
+        sha256_ciphertext: z.string().min(1).optional(),
         media_id: z.string().min(1),
         blob_enc: MediaBlobDescriptor,
         meta_enc: EncryptedPayload,
